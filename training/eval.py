@@ -1,57 +1,64 @@
 import os
 import numpy as np
-from PIL import Image
 from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing import image
+import matplotlib.pyplot as plt
 
-# Fix OneDNN warnings
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+# === Load model ===
+model = load_model("model.h5")
 
-# Load dataset and model paths
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "model.h5")
-TEST_DIR = os.path.join(BASE_DIR, "dataset", "test_images")
+# === Settings ===
+img_dir = "dataset/test_images"
+img_size = (224, 224)
 
-# Load trained model
-model = load_model(MODEL_PATH)
+# === Evaluation ===
+correct = 0
+total = 0
 
-# Initialize metrics
-total, correct, TP, FP, FN, TN = 0, 0, 0, 0, 0, 0
+print("🔍 Evaluating test images:\n")
+for file in sorted(os.listdir(img_dir)):
+    if not file.lower().endswith(('.png', '.jpg', '.jpeg')):
+        continue
 
-# Process test images
-for filename in os.listdir(TEST_DIR):
-    img_path = os.path.join(TEST_DIR, filename)
-    try:
-        img = Image.open(img_path).convert("RGB").resize((28, 28))
-        img_array = np.array(img, dtype="float32") / 255.0
-        img_array = np.expand_dims(img_array, axis=0)
+    # Determine true label based on filename
+    fname = file.lower()
+    if "tsh" in fname:
+        true_label = 1
+    elif "tns" in fname:
+        true_label = 0
+    else:
+        true_label = "Unknown"
 
-        # Model prediction
-        pred_prob = model.predict(img_array)[0][0]
-        pred_label = 1 if pred_prob >= 0.5 else 0
+    # Load and preprocess image
+    img_path = os.path.join(img_dir, file)
+    img = image.load_img(img_path, target_size=img_size)
+    img_array = image.img_to_array(img)
+    img_array = np.expand_dims(img_array, axis=0) / 255.0
 
-        # Determine true label from filename
-        true_label = 1 if filename.startswith("Ts") else 0  # "Ts" = shoe, "Tns" = non-shoe
+    # Predict
+    prediction = model.predict(img_array, verbose=0)[0][0]
+    predicted_label = 1 if prediction >= 0.5 else 0
+    confidence = prediction if predicted_label == 1 else 1 - prediction
 
-        # Update metrics
+    # Display result
+    label_str = "Shoe" if predicted_label == 1 else "Non-shoe"
+    true_str = (
+        "Shoe" if true_label == 1 else "Non-shoe" if true_label == 0 else "Unknown"
+    )
+    correct_str = "✅" if true_label == predicted_label else "❌"
+
+    print(
+        f"{file:<12} ➝ {label_str:<9} ({confidence * 100:.2f}%) | True: {true_str:<9} {correct_str}"
+    )
+
+    if true_label != "Unknown":
         total += 1
-        if pred_label == true_label:
+        if true_label == predicted_label:
             correct += 1
-            if pred_label == 1: TP += 1
-            else: TN += 1
-        else:
-            if pred_label == 1: FP += 1
-            else: FN += 1
 
-    except Exception as e:
-        print(f"Error processing {img_path}: {e}")
-
-# Compute accuracy, precision, recall
-accuracy = correct / total if total > 0 else 0
-precision = TP / (TP + FP) if (TP + FP) > 0 else 0
-recall = TP / (TP + FN) if (TP + FN) > 0 else 0
-
-# Print evaluation results
-print("\nEvaluation Results:")
-print(f"Accuracy: {accuracy * 100:.2f}%")
-print(f"Precision: {precision:.2f}")
-print(f"Recall: {recall:.2f}")
+# === Final Accuracy ===
+if total > 0:
+    acc = correct / total * 100
+    print(f"\n✅ Accuracy: {correct}/{total} ({acc:.2f}%)")
+else:
+    print("\n⚠️ No labeled images found for accuracy calculation.")
